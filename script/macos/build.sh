@@ -125,36 +125,42 @@ build_one() {
 
   echo "==> [$VER/macos-$ARCH] 合并静态库 -> libffmpeg.dylib  (extra=$EXTRA_LINK)"
   EXTRA_LINK="$EXTRA_LINK -liconv"   # extra-ldflags 不进 EXTRALIBS, 合并 dylib 显式补
-  # ld64 没有 --allow-multiple-definition (旧 -multiply_defined 已成空操作), 而 FFmpeg
-  # 内部有跨库重复源文件 (framepool.c 同时在 swscale 与 avfilter, force_load 全量加载
-  # 会撞重复符号)。做法: 解包全部 .a, 丢弃"所有全局符号都被更早的库定义过"的目标
-  # 文件 (等价 GNU ld 的先到先得), 再直接链接幸存目标文件。
+  # 合并方案: 直接链接构建树里的 .o (不碰 .a —— Apple ar 按平铺基名存档,
+  # cpu.o / aarch64/cpu.o 这类同名成员在归档/解包时都会互相覆盖丢文件;
+  # ld64 也没有 --allow-multiple-definition, 旧 -multiply_defined 已成空操作,
+  # 而 FFmpeg 有跨库重复源文件如 framepool.c)。故对 .o 做对象级去重:
+  # 丢弃"所有全局符号都被更早的库定义过"的目标文件 (等价 GNU ld 先到先得)。
   local stage="/tmp/ff-merge-$$"
   rm -rf "$stage"
   mkdir -p "$stage"
   local libs=(libavcodec libavformat libswresample libavfilter libavutil libswscale)
   local lib obj
   for lib in "${libs[@]}"; do
-    mkdir -p "$stage/$lib"
-    (cd "$stage/$lib" && ar x "$WORK/$lib/lib$lib.a")
-  done
-  for lib in "${libs[@]}"; do
-    for obj in "$stage/$lib"/*.o; do
+    while IFS= read -r -d '' obj; do
       nm -gU "$obj" | awk -v o="$obj" '{print $NF, o}'
-    done
+    done < <(find "$WORK/$lib" -name '*.o' -print0)
   done > "$stage/syms.txt"
   awk '{ sym=$1; obj=$2; total[obj]++; if (!(sym in owner)) { owner[sym]=obj; unique[obj]++ } }
        END { for (o in total) if (unique[o]==0) print o }' "$stage/syms.txt" > "$stage/drop.txt"
   local dropped
   dropped="$(wc -l < "$stage/drop.txt" | tr -d ' ')"
-  while IFS= read -r o; do rm -f "$o"; done < "$stage/drop.txt"
-  echo "    去重丢弃目标文件: $dropped 个"
+  echo "    去重跳过目标文件: $dropped 个"
+  for lib in "${libs[@]}"; do
+    find "$WORK/$lib" -name '*.o'
+  done > "$stage/all.txt"
+  if [ -s "$stage/drop.txt" ]; then
+    grep -xF -v -f "$stage/drop.txt" "$stage/all.txt" > "$stage/keep.txt"
+  else
+    cp "$stage/all.txt" "$stage/keep.txt"
+  fi
+  local keep=()
+  while IFS= read -r f; do keep+=("$f"); done < "$stage/keep.txt"
   # shellcheck disable=SC2086  # 标志位字符串按词展开是有意的
   clang -dynamiclib -o "$PREFIX/libffmpeg.dylib" \
     -fPIC \
     -install_name @rpath/libffmpeg.dylib \
     -Wl,-headerpad_max_install_names \
-    "$stage"/*/*.o \
+    "${keep[@]}" \
     $EXTRA_LINK
   rm -rf "$stage"
 
