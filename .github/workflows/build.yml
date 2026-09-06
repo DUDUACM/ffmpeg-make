@@ -3,14 +3,14 @@
 #
 # 触发策略:
 #   • workflow_dispatch (手动): 可选平台/版本过滤 (留空 = 全部), 用于迭代验证
-#   • 推 tag (v*):             全量 7 版本 × 14 目标 = 98 个产物 + 测试 + Release
+#   • 推 tag (v*):             全量 7 版本 × 11 目标 = 77 个产物 + 测试 + Release
 #
 # 平台 / Runner / 工具链:
 #   macos        x86_64 + arm64      macos-15-intel / macos-15 (原生 clang, VideoToolbox)
-#   windows      x86_64 + i686 + arm64  ubuntu-24.04 (MinGW gcc / llvm-mingw 交叉)
-#   windows-msvc x86_64 + i686 + arm64  windows-2025 (clang-cl, MSVC ABI, /MT)
+#   windows      x86_64 + arm64      ubuntu-24.04 (MinGW gcc / llvm-mingw 交叉)
+#   windows-msvc x86_64 + arm64      windows-2025 (clang-cl, MSVC ABI, /MT)
 #   linux        x86_64 + arm64      ubuntu-24.04 / ubuntu-24.04-arm (原生 gcc, VAAPI+NVENC+Vulkan)
-#   android      4 ABI               ubuntu-24.04 (NDK r27d 交叉, mediacodec+Vulkan)
+#   android      3 ABI               ubuntu-24.04 (NDK r27d 交叉, mediacodec+Vulkan)
 #
 # 全部依赖在线获取 (FFmpeg.git / nv-codec-headers / Vulkan-Headers / NDK / llvm-mingw)。
 # ============================================================
@@ -91,10 +91,9 @@ jobs:
       fail-fast: false
       matrix:
         version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
-        arch: [x86_64, i686, arm64]
+        arch: [x86_64, arm64]
         include:
           - { arch: x86_64, apt: "gcc-mingw-w64-x86-64" }
-          - { arch: i686, apt: "gcc-mingw-w64-i686" }
           - { arch: arm64, apt: "" }
     env:
       SEL_PLATFORMS: ${{ inputs.platforms }}
@@ -142,7 +141,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
-        arch: [x86_64, i686, arm64]
+        arch: [x86_64, arm64]
     env:
       SEL_PLATFORMS: ${{ inputs.platforms }}
       SEL_VERSIONS: ${{ inputs.versions }}
@@ -223,7 +222,7 @@ jobs:
       fail-fast: false
       matrix:
         version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
-        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
     env:
       SEL_PLATFORMS: ${{ inputs.platforms }}
       SEL_VERSIONS: ${{ inputs.versions }}

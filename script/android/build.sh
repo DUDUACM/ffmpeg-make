@@ -3,7 +3,7 @@
 # FFmpeg Android 交叉编译脚本 (在 Linux / GitHub ubuntu runner 上执行)
 #
 # 用法:  build.sh <version> [abi ...]
-#   例:   build.sh 6.1.6                 # 构建 6.1.6 的全部 4 个 ABI
+#   例:   build.sh 6.1.6                 # 构建 6.1.6 的全部 3 个 ABI
 #         build.sh 9.0 arm64-v8a         # 只构建 9.0 的 arm64-v8a
 #
 # 说明:
@@ -22,7 +22,7 @@ shift || true
 if [ "$#" -gt 0 ]; then
   ABIS=("$@")
 else
-  ABIS=(arm64-v8a armeabi-v7a x86_64 x86)
+  ABIS=(arm64-v8a armeabi-v7a x86_64)
 fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -119,14 +119,6 @@ build_one() {
       CXX="$TOOLCHAIN/bin/x86_64-linux-android${API}-clang++"
       CROSS_PREFIX="$TOOLCHAIN/bin/x86_64-linux-android-"
       CFLAGS="-march=$CPU -msse4.2 -mpopcnt -m64 -mtune=x86-64"
-      X86ASM_CFG="--enable-x86asm"   # 需要 nasm
-      ;;
-    x86)
-      ARCH=x86; CPU=i686
-      CC="$TOOLCHAIN/bin/i686-linux-android${API}-clang"
-      CXX="$TOOLCHAIN/bin/i686-linux-android${API}-clang++"
-      CROSS_PREFIX="$TOOLCHAIN/bin/i686-linux-android-"
-      CFLAGS="-march=$CPU -mtune=atom -mssse3 -mfpmath=sse"
       X86ASM_CFG="--enable-x86asm"   # 需要 nasm
       ;;
     *)

@@ -7,14 +7,14 @@ FFmpeg 多平台构建系统（GitHub Actions，全在线依赖）。支持 **ma
 | 平台 | 架构 | Runner | 工具链 | 硬件加速 |
 | --- | --- | --- | --- | --- |
 | macOS | x86_64 / arm64 | macos-15-intel / macos-15 | 原生 clang | VideoToolbox |
-| Windows (MinGW) | x86_64 / x86 / arm64 | ubuntu-24.04 交叉 | GCC MinGW-w64（x86/x64）+ llvm-mingw（arm64） | D3D11VA/DXVA2 + NVENC/CUVID + Vulkan |
-| Windows (MSVC) | x86_64 / x86 / arm64 | windows-2025 | clang-cl（MSVC ABI，`/MT` 静态 CRT） | 同上 |
+| Windows (MinGW) | x86_64 / arm64 | ubuntu-24.04 交叉 | GCC MinGW-w64（x86_64）+ llvm-mingw（arm64） | D3D11VA/DXVA2 + NVENC/CUVID + Vulkan |
+| Windows (MSVC) | x86_64 / arm64 | windows-2025 | clang-cl（MSVC ABI，`/MT` 静态 CRT） | 同上 |
 | Linux | x86_64 / arm64 | ubuntu-24.04 / ubuntu-24.04-arm | 原生 gcc | VAAPI + NVENC/CUVID + Vulkan |
-| Android | arm64-v8a / armeabi-v7a / x86_64 / x86 | ubuntu-24.04 交叉 | NDK r27d（API 28） | mediacodec + Vulkan |
+| Android | arm64-v8a / armeabi-v7a / x86_64 | ubuntu-24.04 交叉 | NDK r27d（API 28） | mediacodec + Vulkan |
 
 FFmpeg 版本：`4.4.8` / `5.1.10` / `6.1.6` / `7.1.5` / `8.0.3` / `8.1.2` / `9.0`（官方维护版）
 
-**7 版本 × 14 目标 = 98 个产物。**
+**7 版本 × 11 目标 = 77 个产物。**
 
 > Windows 双工具链说明：MinGW 产物（`ffmpeg-<版本>-windows-<架构>`）与参考仓库一致；MSVC 产物（`ffmpeg-<版本>-windows-msvc-<架构>`）是 MSVC ABI、静态 CRT（无 vcredist 依赖），自带 `.lib` 导入库，适合 MSVC 工程直接链接。
 
@@ -115,7 +115,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-tag 触发：全量 5 个构建 job 并行（macOS 14 + Windows MinGW 21 + Windows MSVC 21 + Linux 14 + Android 28 个编译）→ `test` 阶段在 ubuntu / macos / windows runner 上**原生运行** 9.0 版本的 ffmpeg 做转码功能测试 → `release` 阶段把 98 个 `ffmpeg-*.tar.xz` 上传到 GitHub Release（自动生成 Release Notes）。
+tag 触发：全量 5 个构建 job 并行（macOS 14 + Windows MinGW 14 + Windows MSVC 14 + Linux 14 + Android 21 个编译）→ `test` 阶段在 ubuntu / macos / windows runner 上**原生运行** 9.0 版本的 ffmpeg 做转码功能测试 → `release` 阶段把 77 个 `ffmpeg-*.tar.xz` 上传到 GitHub Release（自动生成 Release Notes）。
 
 > 公开仓库所有 runner（含 macos-15-intel、ubuntu-24.04-arm）免费。macOS 并发上限较低，14 个 macOS job 会分批排队。
 

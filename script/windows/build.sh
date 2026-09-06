@@ -2,15 +2,15 @@
 # =============================================================================
 # FFmpeg Windows 交叉编译脚本 (MinGW; 在 Linux / GitHub ubuntu runner 上执行)
 #
-# 用法:  build.sh <version> [arch ...]      arch: x86_64 | i686 | arm64
+# 用法:  build.sh <version> [arch ...]      arch: x86_64 | arm64
 #   例:   build.sh 9.0                      # 交叉编译 9.0 的 windows x86_64
 #         build.sh 9.0 arm64                # 用 llvm-mingw 交叉编译 arm64
 #
 # 说明:
 #   - 源码在线获取: github.com/FFmpeg/FFmpeg.git 按标签 n<版本> 浅克隆 (git 保留 +x)。
 #   - 纯 LGPL (不开 --enable-gpl / --enable-version3, 禁用 postproc), 便于闭源动态链接。
-#   - x86_64 / i686: apt 的 GCC MinGW-w64 (gcc-mingw-w64-x86-64 / -i686);
-#     arm64: llvm-mingw 在线下载 (clang, MSVCRT 目标), 自动缓存在 $DEPS_DIR。
+#   - x86_64: apt 的 GCC MinGW-w64 (gcc-mingw-w64-x86-64);
+#     arm64: llvm-mingw 在线下载 (clang, UCRT 目标), 自动缓存在 $DEPS_DIR。
 #   - --enable-hwaccels 启用 D3D11VA/DXVA2 (工具链头自带) + NVENC/CUVID (nv-codec-headers
 #     在线安装) + Vulkan (Khronos 在线头 + dlltool 生成 vulkan-1.dll 导入库)。
 #   - 输出: 静态库 .a + 合并的单一 libffmpeg.dll (+ 导入库 .dll.a + .def) + ffmpeg.exe,
@@ -96,14 +96,6 @@ build_one() {
       DLLTOOL_MACHINE=x86_64; DLLTOOL_CMD="dlltool"
       EXTRA_LDFLAGS="-static-libgcc -static-libstdc++"
       ;;
-    i686)
-      TRIPLE=i686-w64-mingw32; SYS_PREFIX="/usr/$TRIPLE"
-      CC="$TRIPLE-gcc"; CXX="$TRIPLE-g++"; CROSS_PREFIX="$TRIPLE-"
-      FFARCH=x86; CPU="i686"; CPU_ARG="--cpu=$CPU"; OPTCFLAGS="-march=i686"
-      X86ASM_CFG="--enable-x86asm"                      # 需要 nasm
-      DLLTOOL_MACHINE=i386; DLLTOOL_CMD="dlltool"
-      EXTRA_LDFLAGS="-static-libgcc -static-libstdc++"
-      ;;
     arm64)
       local LM; LM="$(ensure_llvm_mingw)"
       TRIPLE=aarch64-w64-mingw32; SYS_PREFIX="$LM/$TRIPLE"
@@ -114,7 +106,7 @@ build_one() {
       EXTRA_LDFLAGS=""                                 # clang 无 libgcc/libstdc++
       ;;
     *)
-      echo "错误: 未知架构 -> $ARCH (支持 x86_64 | i686 | arm64)"; exit 1 ;;
+      echo "错误: 未知架构 -> $ARCH (支持 x86_64 | arm64)"; exit 1 ;;
   esac
 
   # nv-codec-headers 装进该架构的工具链 prefix (FFmpeg configure 自动检测 ffnvcodec.pc)

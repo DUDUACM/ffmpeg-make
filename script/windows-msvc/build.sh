@@ -2,13 +2,13 @@
 # =============================================================================
 # FFmpeg Windows MSVC-ABI 编译脚本 (在 GitHub windows runner 的 bash 里执行)
 #
-# 用法:  build.sh <version> [arch ...]      arch: x86_64 | i686 | arm64
+# 用法:  build.sh <version> [arch ...]      arch: x86_64 | arm64
 #   例:   build.sh 9.0                      # clang-cl 构建 windows x86_64
 #
 # 说明:
 #   - 源码在线获取: github.com/FFmpeg/FFmpeg.git 按标签 n<版本> 浅克隆 (git 保留 +x)。
 #   - 工具链: 镜像自带 clang-cl + llvm 工具 (MSVC ABI), /MT 静态 CRT (产物无 vcredist 依赖);
-#     x86_64 原生, i686 / arm64 由 clang-cl --target=... 从 x64 宿主交叉。
+#     x86_64 原生, arm64 由 clang-cl --target=... 从 x64 宿主交叉。
 #   - 纯 LGPL (不开 --enable-gpl / --enable-version3, 禁用 postproc), 便于闭源动态链接。
 #   - --enable-hwaccels 启用 D3D11VA/DXVA2 (Windows SDK 头) + NVENC/CUVID (nv-codec-headers
 #     在线安装) + Vulkan (Khronos 在线头 + lib.exe 生成 vulkan-1.lib 导入库)。
@@ -75,7 +75,12 @@ import_vsenv() {
   cmd //c "$(cygpath -w "$bat")" | tr -d '\r' > "$raw"
   while IFS='=' read -r key val; do
     case "$key" in
-      PATH|INCLUDE|LIB|LIBPATH|WindowsSDKVersion|WindowsSdkDir|VCINSTALLDIR|VCToolsInstallDir|UniversalCRTSdkDir|UCRTContentRoot|Platform)
+      PATH)
+        # cmd 的 PATH 是 Windows 格式 (C:\..;..), 必须转成 POSIX 格式, 否则 bash 找不到命令
+        [ -n "${val:-}" ] && printf "export PATH='%s:/usr/bin:/bin'\n" "$(cygpath -p "$val")"
+        ;;
+      INCLUDE|LIB|LIBPATH|WindowsSDKVersion|WindowsSdkDir|VCINSTALLDIR|VCToolsInstallDir|UniversalCRTSdkDir|UCRTContentRoot|Platform)
+        # 这些保持 Windows 格式 (cl/clang-cl/lib.exe 原生读取)
         [ -n "${val:-}" ] && printf "export %s='%s'\n" "$key" "$val"
         ;;
     esac
@@ -95,18 +100,13 @@ build_one() {
       FFARCH=x86_64; CPU="x86-64"; CPU_ARG="--cpu=$CPU"
       X86ASM_CFG="--enable-x86asm"                      # 需要 nasm
       ;;
-    i686)
-      TARGET="--target=i686-pc-windows-msvc"; VSARCH=x64_x86; MSVC_MACHINE=X86
-      FFARCH=x86; CPU="i686"; CPU_ARG="--cpu=$CPU"
-      X86ASM_CFG="--enable-x86asm"
-      ;;
     arm64)
       TARGET="--target=aarch64-pc-windows-msvc"; VSARCH=x64_arm64; MSVC_MACHINE=ARM64
       FFARCH=aarch64; CPU=""; CPU_ARG=""
       X86ASM_CFG="--disable-x86asm"
       ;;
     *)
-      echo "错误: 未知架构 -> $ARCH (支持 x86_64 | i686 | arm64)"; exit 1 ;;
+      echo "错误: 未知架构 -> $ARCH (支持 x86_64 | arm64)"; exit 1 ;;
   esac
 
   import_vsenv "$VSARCH"
