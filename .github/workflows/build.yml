@@ -160,7 +160,9 @@ jobs:
       - name: deps
         if: steps.sel.outputs.skip != 'true'
         shell: pwsh
-        run: choco install -y --no-progress make nasm pkgconfiglite
+        run: |
+          choco install -y --no-progress nasm pkgconfiglite
+          C:\msys64\usr\bin\bash -lc "pacman -Sy --needed --noconfirm make"
       - name: build
         if: steps.sel.outputs.skip != 'true'
         shell: bash

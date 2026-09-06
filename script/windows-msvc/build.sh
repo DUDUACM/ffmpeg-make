@@ -39,6 +39,13 @@ JOBS="${JOBS:-${NUMBER_OF_PROCESSORS:-$(nproc 2>/dev/null || echo 8)}}"
 bash "$REPO_ROOT/script/common/fetch-ffmpeg.sh" "$VER"
 WORK="$DEPS_DIR/ffmpeg-$VER"
 
+# 用 MSYS2 的 make (POSIX sh/awk 语义正确): choco 的原生 win32 make 跑 FFmpeg
+# 的 msvc 依赖生成 awk 脚本会弄坏引号/反斜杠 (gsub(/\/ 报语法错误)
+MAKE="make"
+if [ -x /c/msys64/usr/bin/make ]; then
+  MAKE=/c/msys64/usr/bin/make
+fi
+
 # 仅当该版本存在 postproc 选项时才禁用 (8.x/9.0 已移除该库)
 POSTPROC_CFG=""
 if grep -q 'postproc' "$WORK/configure"; then
@@ -175,10 +182,10 @@ build_one() {
     --extra-cflags="-MT $TARGET -Wno-unused-command-line-argument -Wno-deprecated-declarations" \
     --extra-ldflags="-MT $TARGET"
 
-  echo "==> [$VER/windows-msvc-$ARCH] make -j${JOBS}"
-  make clean
-  make -j"$JOBS"
-  make install
+  echo "==> [$VER/windows-msvc-$ARCH] make -j${JOBS}  ($MAKE)"
+  "$MAKE" clean
+  "$MAKE" -j"$JOBS"
+  "$MAKE" install
 
   # 从 config.mak 的 EXTRALIBS* 行提取系统库 (*.lib), 合并 DLL 链接用
   local EXTRA_LINK
