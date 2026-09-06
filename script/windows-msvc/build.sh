@@ -132,6 +132,11 @@ build_one() {
   export PKG_CONFIG_PATH="$PREFIX_SYS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
   echo "==> [$VER/windows-msvc-$ARCH] configure"
+  # configure 的临时目录必须用 Windows(mixed) 路径: -Fo/tmp/... 这类附着式前缀参数
+  # MSYS 不做路径转换, clang-cl 拿到 POSIX 路径无法写输出文件 (C compiler test failed)
+  mkdir -p "$DEPS_DIR/fftmp"
+  TMPDIR="$(cygpath -m "$DEPS_DIR/fftmp")"
+  export TMPDIR
   cd "$WORK"
   # shellcheck disable=SC2086,SC2046  # 标志位字符串/条件展开是有意的
   ./configure \

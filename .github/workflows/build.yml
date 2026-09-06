@@ -119,7 +119,13 @@ jobs:
           key: llvm-mingw-${{ env.LLVM_MINGW_VER }}
       - name: build
         if: steps.sel.outputs.skip != 'true'
-        run: bash script/windows/build.sh "${{ matrix.version }}" "${{ matrix.arch }}"
+        run: |
+          bash script/windows/build.sh "${{ matrix.version }}" "${{ matrix.arch }}" || {
+            code=$?
+            echo "===== ffbuild/config.log (尾部 100 行) ====="
+            tail -n 100 ".deps/ffmpeg-${{ matrix.version }}/ffbuild/config.log" || true
+            exit "$code"
+          }
       - name: pack
         if: steps.sel.outputs.skip != 'true'
         run: |

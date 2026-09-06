@@ -94,7 +94,8 @@ build_one() {
       CC="$TRIPLE-gcc"; CXX="$TRIPLE-g++"; CROSS_PREFIX="$TRIPLE-"
       FFARCH=x86_64; CPU="x86-64"; CPU_ARG="--cpu=$CPU"; OPTCFLAGS="-march=x86-64"
       X86ASM_CFG="--enable-x86asm"                      # 需要 nasm
-      DLLTOOL_MACHINE=x86_64; DLLTOOL_CMD="$TRIPLE-dlltool"   # binutils-mingw-w64 只装带前缀的 dlltool
+      # binutils-mingw-w64 只装带前缀的 dlltool; 机器名是 BFD 风格 i386:x86-64
+      DLLTOOL_MACHINE="i386:x86-64"; DLLTOOL_CMD="$TRIPLE-dlltool"
       EXTRA_LDFLAGS="-static-libgcc -static-libstdc++"
       ;;
     arm64)
