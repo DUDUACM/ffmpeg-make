@@ -56,7 +56,9 @@ for c in h264 hevc; do
 done
 
 # 关闭自动检测 (runner 装了 XQuartz 等会被误启用, 且 X11 依赖不该进分发产物),
-# 显式启用需要的系统库 (SDK 自带头文件)
+# 显式启用需要的系统库 (SDK 自带头文件)。
+# iconv: 新 SDK 里 iconv 不在 libSystem, configure 的 libc_iconv 检查不带 -liconv
+# 且失败不禁用特性 -> 编译期启用/链接期缺符号; 显式加 --extra-ldflags=-liconv 解决。
 EXTRA_LIB_CFG="--enable-zlib --enable-bzlib --enable-iconv"
 
 build_one() {
@@ -108,7 +110,7 @@ build_one() {
     --cc=clang \
     --cxx=clang++ \
     --extra-cflags="-fPIC -O3 $OPTCFLAGS" \
-    --extra-ldflags="-fPIC"
+    --extra-ldflags="-fPIC -liconv"
 
   echo "==> [$VER/macos-$ARCH] make -j${JOBS}"
   make clean
@@ -118,21 +120,43 @@ build_one() {
   # 从 config.mak 的 EXTRALIBS* 行提取系统依赖 (-l... / -framework ...), 合并 dylib 链接用
   local EXTRA_LINK
   EXTRA_LINK="$(grep -E '^EXTRALIBS' ffbuild/config.mak | grep -oE '\-l[A-Za-z0-9_]+|-framework +[A-Za-z]+' | sed 's/-framework  */-framework /' | sort -u | tr '\n' ' ' || true)"
-  [ -z "$EXTRA_LINK" ] && EXTRA_LINK="-lm -lz -lbz2 -liconv -framework CoreFoundation -framework CoreVideo -framework CoreMedia -framework VideoToolbox"
+  [ -z "$EXTRA_LINK" ] && EXTRA_LINK="-lm -lz -lbz2 -framework CoreFoundation -framework CoreVideo -framework CoreMedia -framework VideoToolbox"
+  EXTRA_LINK="$EXTRA_LINK -liconv"   # extra-ldflags 不进 EXTRALIBS, 合并 dylib 显式补
 
   echo "==> [$VER/macos-$ARCH] 合并静态库 -> libffmpeg.dylib  (extra=$EXTRA_LINK)"
+  EXTRA_LINK="$EXTRA_LINK -liconv"   # extra-ldflags 不进 EXTRALIBS, 合并 dylib 显式补
+  # ld64 没有 --allow-multiple-definition (旧 -multiply_defined 已成空操作), 而 FFmpeg
+  # 内部有跨库重复源文件 (framepool.c 同时在 swscale 与 avfilter, force_load 全量加载
+  # 会撞重复符号)。做法: 解包全部 .a, 丢弃"所有全局符号都被更早的库定义过"的目标
+  # 文件 (等价 GNU ld 的先到先得), 再直接链接幸存目标文件。
+  local stage="/tmp/ff-merge-$$"
+  rm -rf "$stage"
+  mkdir -p "$stage"
+  local libs=(libavcodec libavformat libswresample libavfilter libavutil libswscale)
+  local lib obj
+  for lib in "${libs[@]}"; do
+    mkdir -p "$stage/$lib"
+    (cd "$stage/$lib" && ar x "$WORK/$lib/lib$lib.a")
+  done
+  for lib in "${libs[@]}"; do
+    for obj in "$stage/$lib"/*.o; do
+      nm -gU "$obj" | awk -v o="$obj" '{print $NF, o}'
+    done
+  done > "$stage/syms.txt"
+  awk '{ sym=$1; obj=$2; total[obj]++; if (!(sym in owner)) { owner[sym]=obj; unique[obj]++ } }
+       END { for (o in total) if (unique[o]==0) print o }' "$stage/syms.txt" > "$stage/drop.txt"
+  local dropped
+  dropped="$(wc -l < "$stage/drop.txt" | tr -d ' ')"
+  while IFS= read -r o; do rm -f "$o"; done < "$stage/drop.txt"
+  echo "    去重丢弃目标文件: $dropped 个"
   # shellcheck disable=SC2086  # 标志位字符串按词展开是有意的
   clang -dynamiclib -o "$PREFIX/libffmpeg.dylib" \
     -fPIC \
     -install_name @rpath/libffmpeg.dylib \
     -Wl,-headerpad_max_install_names \
-    -Wl,-force_load,libavcodec/libavcodec.a \
-    -Wl,-force_load,libavformat/libavformat.a \
-    -Wl,-force_load,libswresample/libswresample.a \
-    -Wl,-force_load,libavfilter/libavfilter.a \
-    -Wl,-force_load,libavutil/libavutil.a \
-    -Wl,-force_load,libswscale/libswscale.a \
+    "$stage"/*/*.o \
     $EXTRA_LINK
+  rm -rf "$stage"
 
   echo "==> [$VER/macos-$ARCH] 完成 -> $PREFIX"
 }

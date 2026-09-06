@@ -66,14 +66,15 @@ bash "$REPO_ROOT/script/common/fetch-vulkan.sh" "$VK_VER"
 VKH="$DEPS_DIR/vulkan-headers-$VK_VER"
 
 # llvm-mingw 工具链 (仅 arm64 用; 在线下载, 缓存复用)
+# 注意: 进度信息必须走 stderr; stdout 只输出工具链路径 (本函数在命令替换里调用)
 LLVM_MINGW_VER="${LLVM_MINGW_VER:-20260826}"
 ensure_llvm_mingw() {
   local dir="$DEPS_DIR/llvm-mingw"
   if [ ! -x "$dir/bin/aarch64-w64-mingw32-clang" ]; then
     local tgz="$DEPS_DIR/llvm-mingw-$LLVM_MINGW_VER.tar.xz"
     if [ ! -f "$tgz" ]; then
-      echo "==> 在线获取 llvm-mingw $LLVM_MINGW_VER"
-      curl -fL --retry 3 -o "$tgz" "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VER/llvm-mingw-$LLVM_MINGW_VER-ucrt-ubuntu-22.04-x86_64.tar.xz"
+      echo "==> 在线获取 llvm-mingw $LLVM_MINGW_VER" >&2
+      curl -fL --retry 3 -o "$tgz" "https://github.com/mstorsjo/llvm-mingw/releases/download/$LLVM_MINGW_VER/llvm-mingw-$LLVM_MINGW_VER-ucrt-ubuntu-22.04-x86_64.tar.xz" >&2
     fi
     rm -rf "$dir"
     mkdir -p "$dir"
@@ -93,7 +94,7 @@ build_one() {
       CC="$TRIPLE-gcc"; CXX="$TRIPLE-g++"; CROSS_PREFIX="$TRIPLE-"
       FFARCH=x86_64; CPU="x86-64"; CPU_ARG="--cpu=$CPU"; OPTCFLAGS="-march=x86-64"
       X86ASM_CFG="--enable-x86asm"                      # 需要 nasm
-      DLLTOOL_MACHINE=x86_64; DLLTOOL_CMD="dlltool"
+      DLLTOOL_MACHINE=x86_64; DLLTOOL_CMD="$TRIPLE-dlltool"   # binutils-mingw-w64 只装带前缀的 dlltool
       EXTRA_LDFLAGS="-static-libgcc -static-libstdc++"
       ;;
     arm64)
