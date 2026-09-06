@@ -85,7 +85,7 @@ ensure_llvm_mingw() {
 
 build_one() {
   local ARCH="$1" TRIPLE SYS_PREFIX CC CXX CROSS_PREFIX FFARCH CPU CPU_ARG OPTCFLAGS X86ASM_CFG
-  local DLLTOOL_MACHINE DLLTOOL_CMD EXTRA_LDFLAGS
+  local DLLTOOL_MACHINE DLLTOOL_CMD EXTRA_LDFLAGS GFXCAPTURE_CFG=""
   local PREFIX_OUT="$OUT_BASE/ffmpeg-${VER}-${PLATFORM}-${ARCH}"
 
   case "$ARCH" in
@@ -106,6 +106,11 @@ build_one() {
       X86ASM_CFG="--disable-x86asm"
       DLLTOOL_MACHINE=arm64; DLLTOOL_CMD="$LM/bin/llvm-dlltool"
       EXTRA_LDFLAGS=""                                 # clang 无 libgcc/libstdc++
+      # llvm-mingw 的 clang++ 缺完整 libc++ 头 (std::system_error 未声明),
+      # FFmpeg 9.0 的 gfxcapture (WinRT 屏幕捕获) 是默认构建里唯一的 C++ 源
+      # 文件, 该架构下禁用此滤镜绕开 (仅 9.0 有, 老版本无此选项)
+      GFXCAPTURE_CFG=""
+      grep -q 'gfxcapture' "$WORK/configure" && GFXCAPTURE_CFG="--disable-filter=gfxcapture"
       ;;
     *)
       echo "错误: 未知架构 -> $ARCH (支持 x86_64 | arm64)"; exit 1 ;;
@@ -145,6 +150,7 @@ build_one() {
     --enable-asm \
     $X86ASM_CFG \
     --enable-hwaccels \
+    $GFXCAPTURE_CFG \
     --target-os=mingw32 \
     --arch="$FFARCH" \
     $CPU_ARG \

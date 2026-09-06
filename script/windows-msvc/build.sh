@@ -182,6 +182,16 @@ build_one() {
     --extra-cflags="-MT $TARGET -Wno-unused-command-line-argument -Wno-deprecated-declarations" \
     --extra-ldflags="-MT $TARGET"
 
+  # FFmpeg 为 msvc 生成的依赖跟踪块 (define XDEP ... endef) 内嵌 awk 脚本,
+  # 其反斜杠在 MSYS 链路下会被吃掉一层 (gsub(/\/ 语法错误)。一次性 CI 构建
+  # 不需要增量依赖, 把这些块替换成"生成空 .d"的无害实现
+  awk '
+    /^define [A-Z]+DEP$/ { print; print "\t: > $(@:.o=.d)"; in_dep=1; next }
+    in_dep && /^endef$/  { print; in_dep=0; next }
+    in_dep               { next }
+                         { print }
+  ' ffbuild/config.mak > ffbuild/config.mak.new && mv ffbuild/config.mak.new ffbuild/config.mak
+
   echo "==> [$VER/windows-msvc-$ARCH] make -j${JOBS}  ($MAKE)"
   "$MAKE" clean
   "$MAKE" -j"$JOBS"
