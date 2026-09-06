@@ -112,9 +112,12 @@ build_one() {
   import_vsenv "$VSARCH"
 
   # 自建 prefix: nv-codec-headers + Vulkan 头 + vulkan-1.lib 导入库 + .pc
-  local PREFIX_SYS
+  # 统一用 mixed 路径 (D:/...): 后续 configure 关闭 MSYS 路径转换, 编译器/
+  # pkg-config 收到的路径必须是 Windows 可识别的
+  local PREFIX_SYS PREFIX_SYS_M
   PREFIX_SYS="$DEPS_DIR/msvc-prefix-$ARCH"
-  SUDO="" bash "$REPO_ROOT/script/common/fetch-nvcodec.sh" "$_nvcode_ver" "$PREFIX_SYS"
+  PREFIX_SYS_M="$(cygpath -m "$PREFIX_SYS")"
+  SUDO="" bash "$REPO_ROOT/script/common/fetch-nvcodec.sh" "$_nvcode_ver" "$PREFIX_SYS_M"
   bash "$REPO_ROOT/script/common/fetch-vulkan.sh" "$VK_VER"
   local VKH="$DEPS_DIR/vulkan-headers-$VK_VER"
   mkdir -p "$PREFIX_SYS/include/vulkan" "$PREFIX_SYS/include/vk_video" "$PREFIX_SYS/lib/pkgconfig"
@@ -126,10 +129,9 @@ build_one() {
     /def:"$(cygpath -w "$DEPS_DIR/vulkan.def")" \
     "/machine:$MSVC_MACHINE" \
     "/out:$(cygpath -w "$PREFIX_SYS/lib/vulkan-1.lib")"
-  local PKGMIX; PKGMIX="$(cygpath -m "$PREFIX_SYS")"   # 混合路径 (C:/...) 避免 MSYS 转换
   printf 'Name: Vulkan\nDescription: Vulkan\nVersion: %s\nLibs: -L%s/lib -lvulkan-1\nCflags: -I%s/include\n' \
-    "$VK_VER" "$PKGMIX" "$PKGMIX" > "$PREFIX_SYS/lib/pkgconfig/vulkan.pc"
-  export PKG_CONFIG_PATH="$PREFIX_SYS/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+    "$VK_VER" "$PREFIX_SYS_M" "$PREFIX_SYS_M" > "$PREFIX_SYS/lib/pkgconfig/vulkan.pc"
+  export PKG_CONFIG_PATH="$PREFIX_SYS_M/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 
   echo "==> [$VER/windows-msvc-$ARCH] configure"
   # configure 的临时目录必须用 Windows(mixed) 路径: -Fo/tmp/... 这类附着式前缀参数
@@ -139,7 +141,9 @@ build_one() {
   export TMPDIR
   cd "$WORK"
   # shellcheck disable=SC2086,SC2046  # 标志位字符串/条件展开是有意的
-  ./configure \
+  # 关闭 MSYS 参数路径转换 (仅本命令): -FoD:/a/... 内嵌的 /a/... 会被 MSYS
+  # 误判为盘符路径转换成 A:/..., 拼出非法的 D:A:/...
+  MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 ./configure \
     --prefix="$PREFIX" \
     --disable-debug \
     --disable-stripping \
