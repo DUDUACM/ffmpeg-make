@@ -82,8 +82,7 @@ nv-codec-headers 版本映射：FFmpeg 4.x → 9.1.23.3；5.x → 11.1.5.4；6.x
 
 | 路径 | 说明 |
 | --- | --- |
-| `.github/workflows/check.yml` | push / PR：脚本语法检查（bash -n + shellcheck） |
-| `.github/workflows/build.yml` | 主工作流：4 个构建 job（平台 × 架构 × 版本矩阵）+ 测试 + 发布 |
+| `.github/workflows/build.yml` | 主工作流：4 个构建 job（平台 × 架构 × 版本矩阵）+ 发布 |
 | `script/common/` | 在线获取脚本（FFmpeg / nv-codec-headers / Vulkan-Headers）+ CI 选择过滤 |
 | `script/macos/` | macOS 构建脚本（VideoToolbox） |
 | `script/windows/` | Windows 交叉脚本（GCC MinGW + llvm-mingw） |
@@ -110,7 +109,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-tag 触发：全量 4 个构建 job 并行（macOS 14 + Windows 14 + Linux 14 + Android 21 个编译）→ `test` 阶段在 ubuntu / macos / windows runner 上**原生运行** 9.0 版本的 ffmpeg 做转码功能测试 → `release` 阶段把 63 个 `ffmpeg-*.tar.xz` 上传到 GitHub Release（自动生成 Release Notes）。
+tag 触发：全量 4 个构建 job 并行（macOS 14 + Windows 14 + Linux 14 + Android 21 个编译）→ `release` 阶段把 63 个 `ffmpeg-*.tar.xz` 上传到 GitHub Release（自动生成 Release Notes）。
 
 > 公开仓库所有 runner（含 macos-15-intel、ubuntu-24.04-arm）免费。macOS 并发上限较低，14 个 macOS job 会分批排队。
 
