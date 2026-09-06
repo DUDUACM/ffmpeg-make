@@ -39,6 +39,28 @@ JOBS="${JOBS:-${NUMBER_OF_PROCESSORS:-$(nproc 2>/dev/null || echo 8)}}"
 bash "$REPO_ROOT/script/common/fetch-ffmpeg.sh" "$VER"
 WORK="$DEPS_DIR/ffmpeg-$VER"
 
+# clang-cl 包装器: FFmpeg msvc 的链接行是 "-libpath:dir 裸库名" 形式, 而
+# -libpath: 是链接器参数, clang-cl 驱动不识别 (必须出现在 /link 之后)。
+# 包装器把 -libpath: 参数收集起来挪到末尾追加的 /link 之后。
+CLANG_CL_WRAP="$DEPS_DIR/clang-cl-wrap.sh"
+cat > "$CLANG_CL_WRAP" <<'WRAPPER'
+#!/bin/bash
+export MSYS2_ARG_CONV_EXCL='*'   # /link 不能被 MSYS 转成路径
+args=()
+libpaths=()
+for a in "$@"; do
+  case "$a" in
+    -libpath:*|/libpath:*) libpaths+=("$a") ;;
+    *) args+=("$a") ;;
+  esac
+done
+if [ "${#libpaths[@]}" -gt 0 ]; then
+  exec clang-cl "${args[@]}" /link "${libpaths[@]}"
+fi
+exec clang-cl "${args[@]}"
+WRAPPER
+chmod +x "$CLANG_CL_WRAP"
+
 # 用 MSYS2 的 make (POSIX sh/awk 语义正确): choco 的原生 win32 make 跑 FFmpeg
 # 的 msvc 依赖生成 awk 脚本会弄坏引号/反斜杠 (gsub(/\/ 报语法错误)
 MAKE="make"
@@ -174,7 +196,7 @@ build_one() {
     $( [ -n "$TARGET" ] && echo --enable-cross-compile ) \
     --cc=clang-cl \
     --cxx=clang-cl \
-    --ld=clang-cl \
+    --ld="$CLANG_CL_WRAP" \
     --ar=llvm-ar \
     --nm=llvm-nm \
     --ranlib=llvm-ranlib \
@@ -203,15 +225,16 @@ build_one() {
   echo "==> [$VER/windows-msvc-$ARCH] 合并静态库 -> libffmpeg.dll  (extra=$EXTRA_LINK)"
   mkdir -p "$PREFIX/lib"
   # clang-cl -shared → /DLL; /link 后是 lld-link 参数 (MSYS_NO_PATHCONV 防 /参数被路径转换)
+  # 归档是 llvm-ar 产生的 lib<name>/lib<name>.a (相对 WORK 目录)
   # shellcheck disable=SC2086  # 标志位字符串按词展开是有意的
   MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 clang-cl -shared -o "$(cygpath -w "$PREFIX/libffmpeg.dll")" \
     /link \
-    /WHOLEARCHIVE:libavcodec.lib \
-    /WHOLEARCHIVE:libavformat.lib \
-    /WHOLEARCHIVE:libswresample.lib \
-    /WHOLEARCHIVE:libavfilter.lib \
-    /WHOLEARCHIVE:libavutil.lib \
-    /WHOLEARCHIVE:libswscale.lib \
+    /WHOLEARCHIVE:libavcodec/libavcodec.a \
+    /WHOLEARCHIVE:libavformat/libavformat.a \
+    /WHOLEARCHIVE:libswresample/libswresample.a \
+    /WHOLEARCHIVE:libavfilter/libavfilter.a \
+    /WHOLEARCHIVE:libavutil/libavutil.a \
+    /WHOLEARCHIVE:libswscale/libswscale.a \
     "/IMPLIB:$(cygpath -w "$PREFIX/lib/libffmpeg.lib")" \
     "/MACHINE:$MSVC_MACHINE" \
     "/LIBPATH:$(cygpath -w "$PREFIX_SYS/lib")" \
