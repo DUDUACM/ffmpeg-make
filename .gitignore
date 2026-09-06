@@ -1,0 +1,15 @@
+# 构建产物 (可再生, 由 script/ 生成)
+build/
+
+# 在线依赖缓存 (源码/工具链, 由 fetch 脚本下载)
+.deps/
+
+# 日志
+*.log
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+*.swp
+*~
+__pycache__/

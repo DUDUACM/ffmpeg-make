@@ -1,0 +1,319 @@
+# ============================================================
+# FFmpeg 多平台构建 — GitHub Actions 主工作流
+#
+# 触发策略:
+#   • workflow_dispatch (手动): 可选平台/版本过滤 (留空 = 全部), 用于迭代验证
+#   • 推 tag (v*):             全量 7 版本 × 14 目标 = 98 个产物 + 测试 + Release
+#
+# 平台 / Runner / 工具链:
+#   macos        x86_64 + arm64      macos-15-intel / macos-15 (原生 clang, VideoToolbox)
+#   windows      x86_64 + i686 + arm64  ubuntu-24.04 (MinGW gcc / llvm-mingw 交叉)
+#   windows-msvc x86_64 + i686 + arm64  windows-2025 (clang-cl, MSVC ABI, /MT)
+#   linux        x86_64 + arm64      ubuntu-24.04 / ubuntu-24.04-arm (原生 gcc, VAAPI+NVENC+Vulkan)
+#   android      4 ABI               ubuntu-24.04 (NDK r27d 交叉, mediacodec+Vulkan)
+#
+# 全部依赖在线获取 (FFmpeg.git / nv-codec-headers / Vulkan-Headers / NDK / llvm-mingw)。
+# ============================================================
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "平台 (逗号分隔: macos,windows,windows-msvc,linux,android; 留空=全部)"
+        type: string
+        default: ""
+      versions:
+        description: "版本 (逗号分隔, 如 9.0,8.1.2; 留空=全部 7 个)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  VK_HEADERS_VER: "1.4.359"
+  NDK_VERSION: "r27d"
+  API: "28"
+  LLVM_MINGW_VER: "20260826"
+
+jobs:
+  # -------------------- macOS (原生 clang, VideoToolbox) --------------------
+  macos:
+    name: macos ${{ matrix.arch }} / ${{ matrix.version }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
+        arch: [x86_64, arm64]
+        include:
+          - { arch: x86_64, runs-on: macos-15-intel }
+          - { arch: arm64, runs-on: macos-15 }
+    env:
+      SEL_PLATFORMS: ${{ inputs.platforms }}
+      SEL_VERSIONS: ${{ inputs.versions }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - id: sel
+        run: bash script/common/ci-select.sh macos "${{ matrix.version }}"
+      - name: deps
+        if: steps.sel.outputs.skip != 'true'
+        run: brew install -q nasm pkg-config
+      - name: build
+        if: steps.sel.outputs.skip != 'true'
+        run: bash script/macos/build.sh "${{ matrix.version }}" "${{ matrix.arch }}"
+      - name: pack
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          cd build
+          d="ffmpeg-${{ matrix.version }}-macos-${{ matrix.arch }}"
+          tar -cJf "$d.tar.xz" "$d"
+      - uses: actions/upload-artifact@v4
+        if: steps.sel.outputs.skip != 'true'
+        with:
+          name: ffmpeg-${{ matrix.version }}-macos-${{ matrix.arch }}
+          path: build/ffmpeg-*.tar.xz
+          if-no-files-found: error
+
+  # -------------------- Windows MinGW 交叉 (ubuntu) --------------------
+  windows:
+    name: windows ${{ matrix.arch }} / ${{ matrix.version }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
+        arch: [x86_64, i686, arm64]
+        include:
+          - { arch: x86_64, apt: "gcc-mingw-w64-x86-64" }
+          - { arch: i686, apt: "gcc-mingw-w64-i686" }
+          - { arch: arm64, apt: "" }
+    env:
+      SEL_PLATFORMS: ${{ inputs.platforms }}
+      SEL_VERSIONS: ${{ inputs.versions }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - id: sel
+        run: bash script/common/ci-select.sh windows "${{ matrix.version }}"
+      - name: deps
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          pkgs="make nasm yasm pkg-config xz-utils file build-essential curl ca-certificates unzip"
+          extra="${{ matrix.apt }}"
+          [ -n "$extra" ] && pkgs="$pkgs $extra"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq $pkgs
+      - name: cache llvm-mingw
+        if: steps.sel.outputs.skip != 'true' && matrix.arch == 'arm64'
+        uses: actions/cache@v4
+        with:
+          path: .deps/llvm-mingw
+          key: llvm-mingw-${{ env.LLVM_MINGW_VER }}
+      - name: build
+        if: steps.sel.outputs.skip != 'true'
+        run: bash script/windows/build.sh "${{ matrix.version }}" "${{ matrix.arch }}"
+      - name: pack
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          cd build
+          d="ffmpeg-${{ matrix.version }}-windows-${{ matrix.arch }}"
+          tar -cJf "$d.tar.xz" "$d"
+      - uses: actions/upload-artifact@v4
+        if: steps.sel.outputs.skip != 'true'
+        with:
+          name: ffmpeg-${{ matrix.version }}-windows-${{ matrix.arch }}
+          path: build/ffmpeg-*.tar.xz
+          if-no-files-found: error
+
+  # -------------------- Windows MSVC-ABI (windows runner, clang-cl) --------------------
+  windows-msvc:
+    name: windows-msvc ${{ matrix.arch }} / ${{ matrix.version }}
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
+        arch: [x86_64, i686, arm64]
+    env:
+      SEL_PLATFORMS: ${{ inputs.platforms }}
+      SEL_VERSIONS: ${{ inputs.versions }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - id: sel
+        shell: bash
+        run: bash script/common/ci-select.sh windows-msvc "${{ matrix.version }}"
+      - name: deps
+        if: steps.sel.outputs.skip != 'true'
+        shell: pwsh
+        run: choco install -y --no-progress make nasm pkgconfiglite
+      - name: build
+        if: steps.sel.outputs.skip != 'true'
+        shell: bash
+        run: bash script/windows-msvc/build.sh "${{ matrix.version }}" "${{ matrix.arch }}"
+      - name: pack
+        if: steps.sel.outputs.skip != 'true'
+        shell: bash
+        run: |
+          cd build
+          d="ffmpeg-${{ matrix.version }}-windows-msvc-${{ matrix.arch }}"
+          tar -cJf "$d.tar.xz" "$d"
+      - uses: actions/upload-artifact@v4
+        if: steps.sel.outputs.skip != 'true'
+        with:
+          name: ffmpeg-${{ matrix.version }}-windows-msvc-${{ matrix.arch }}
+          path: build/ffmpeg-*.tar.xz
+          if-no-files-found: error
+
+  # -------------------- Linux 原生 (x86_64 / arm64) --------------------
+  linux:
+    name: linux ${{ matrix.arch }} / ${{ matrix.version }}
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
+        arch: [x86_64, arm64]
+        include:
+          - { arch: x86_64, runs-on: ubuntu-24.04 }
+          - { arch: arm64, runs-on: ubuntu-24.04-arm }
+    env:
+      SEL_PLATFORMS: ${{ inputs.platforms }}
+      SEL_VERSIONS: ${{ inputs.versions }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - id: sel
+        run: bash script/common/ci-select.sh linux "${{ matrix.version }}"
+      - name: deps
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq make nasm yasm pkg-config xz-utils build-essential curl ca-certificates unzip zlib1g-dev libva-dev libdrm-dev libvulkan-dev
+      - name: build
+        if: steps.sel.outputs.skip != 'true'
+        run: bash script/linux/build.sh "${{ matrix.version }}" "${{ matrix.arch }}"
+      - name: pack
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          cd build
+          d="ffmpeg-${{ matrix.version }}-linux-${{ matrix.arch }}"
+          tar -cJf "$d.tar.xz" "$d"
+      - uses: actions/upload-artifact@v4
+        if: steps.sel.outputs.skip != 'true'
+        with:
+          name: ffmpeg-${{ matrix.version }}-linux-${{ matrix.arch }}
+          path: build/ffmpeg-*.tar.xz
+          if-no-files-found: error
+
+  # -------------------- Android 交叉 (NDK) --------------------
+  android:
+    name: android ${{ matrix.abi }} / ${{ matrix.version }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
+    env:
+      SEL_PLATFORMS: ${{ inputs.platforms }}
+      SEL_VERSIONS: ${{ inputs.versions }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - id: sel
+        run: bash script/common/ci-select.sh android "${{ matrix.version }}"
+      - name: deps
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq make nasm yasm pkg-config xz-utils build-essential curl unzip ca-certificates
+      - name: cache NDK
+        if: steps.sel.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: .deps/android-ndk
+          key: ndk-${{ env.NDK_VERSION }}
+      - name: build
+        if: steps.sel.outputs.skip != 'true'
+        run: bash script/android/build.sh "${{ matrix.version }}" "${{ matrix.abi }}"
+      - name: pack
+        if: steps.sel.outputs.skip != 'true'
+        run: |
+          cd build
+          d="ffmpeg-${{ matrix.version }}-android-${{ matrix.abi }}"
+          tar -cJf "$d.tar.xz" "$d"
+      - uses: actions/upload-artifact@v4
+        if: steps.sel.outputs.skip != 'true'
+        with:
+          name: ffmpeg-${{ matrix.version }}-android-${{ matrix.abi }}
+          path: build/ffmpeg-*.tar.xz
+          if-no-files-found: error
+
+  # -------------------- 功能测试 (仅 tag; 9.0 版本原生运行) --------------------
+  test:
+    name: test ${{ matrix.name }}
+    needs: [macos, windows, windows-msvc, linux, android]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, runs-on: ubuntu-latest, artifact: ffmpeg-9.0-linux-x86_64 }
+          - { name: macos-arm64, runs-on: macos-15, artifact: ffmpeg-9.0-macos-arm64 }
+          - { name: windows-x86_64-mingw, runs-on: windows-2025, artifact: ffmpeg-9.0-windows-x86_64 }
+          - { name: windows-x86_64-msvc, runs-on: windows-2025, artifact: ffmpeg-9.0-windows-msvc-x86_64 }
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: pkg
+      - name: functional test
+        shell: bash
+        run: |
+          set -e
+          tar -xJf pkg/*.tar.xz -C pkg
+          set -- pkg/ffmpeg-*/bin/ffmpeg*
+          FF="$1"
+          echo "==> 测试 $FF"
+          "$FF" -version | head -1
+          head -c 230400 /dev/zero > /tmp/raw.yuv   # 320x240 yuv420p 2 帧
+          "$FF" -hide_banner -loglevel error -f rawvideo -pixel_format yuv420p -video_size 320x240 -framerate 1 -i /tmp/raw.yuv -frames:v 2 -y /tmp/out.mp4
+          test -s /tmp/out.mp4
+          "$FF" -hide_banner -loglevel error -i /tmp/out.mp4 -f null -
+          echo "==> functional OK"
+
+  # -------------------- Release (仅 tag; 上传全部产物) --------------------
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: collect
+        run: |
+          mkdir -p pkgs
+          find artifacts -name 'ffmpeg-*.tar.xz' -exec cp {} pkgs/ \;
+          echo "==> 收集到 $(ls pkgs | wc -l | tr -d ' ') 个包"
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "FFmpeg $GITHUB_REF_NAME" \
+            --generate-notes \
+            pkgs/*.tar.xz

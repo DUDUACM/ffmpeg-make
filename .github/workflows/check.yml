@@ -1,0 +1,27 @@
+# ============================================================
+# 脚本检查: push (分支) / PR 时跑 bash 语法检查 + shellcheck
+# ============================================================
+name: check
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n
+        run: |
+          find script -name '*.sh' -print0 | while IFS= read -r -d '' f; do
+            echo "==> bash -n $f"
+            bash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          find script -name '*.sh' -print0 | xargs -0 shellcheck
