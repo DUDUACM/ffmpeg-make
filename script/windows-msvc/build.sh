@@ -137,7 +137,6 @@ build_one() {
   ./configure \
     --prefix="$PREFIX" \
     --disable-debug \
-    --enable-pic \
     --disable-stripping \
     $POSTPROC_CFG \
     --enable-small \
