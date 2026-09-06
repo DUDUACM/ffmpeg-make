@@ -3,14 +3,13 @@
 #
 # 触发策略:
 #   • workflow_dispatch (手动): 可选平台/版本过滤 (留空 = 全部), 用于迭代验证
-#   • 推 tag (v*):             全量 7 版本 × 11 目标 = 77 个产物 + 测试 + Release
+#   • 推 tag (v*):             全量 7 版本 × 9 目标 = 63 个产物 + 测试 + Release
 #
 # 平台 / Runner / 工具链:
-#   macos        x86_64 + arm64      macos-15-intel / macos-15 (原生 clang, VideoToolbox)
-#   windows      x86_64 + arm64      ubuntu-24.04 (MinGW gcc / llvm-mingw 交叉)
-#   windows-msvc x86_64 + arm64      windows-2025 (clang-cl, MSVC ABI, /MT)
-#   linux        x86_64 + arm64      ubuntu-24.04 / ubuntu-24.04-arm (原生 gcc, VAAPI+NVENC+Vulkan)
-#   android      3 ABI               ubuntu-24.04 (NDK r27d 交叉, mediacodec+Vulkan)
+#   macos   x86_64 + arm64   macos-15-intel / macos-15 (原生 clang, VideoToolbox)
+#   windows x86_64 + arm64   ubuntu-24.04 (MinGW gcc / llvm-mingw 交叉)
+#   linux   x86_64 + arm64   ubuntu-24.04 / ubuntu-24.04-arm (原生 gcc, VAAPI+NVENC+Vulkan)
+#   android 3 ABI            ubuntu-24.04 (NDK r27d 交叉, mediacodec+Vulkan)
 #
 # 全部依赖在线获取 (FFmpeg.git / nv-codec-headers / Vulkan-Headers / NDK / llvm-mingw)。
 # ============================================================
@@ -22,7 +21,7 @@ on:
   workflow_dispatch:
     inputs:
       platforms:
-        description: "平台 (逗号分隔: macos,windows,windows-msvc,linux,android; 留空=全部)"
+        description: "平台 (逗号分隔: macos,windows,linux,android; 留空=全部)"
         type: string
         default: ""
       versions:
@@ -139,54 +138,6 @@ jobs:
           path: build/ffmpeg-*.tar.xz
           if-no-files-found: error
 
-  # -------------------- Windows MSVC-ABI (windows runner, clang-cl) --------------------
-  windows-msvc:
-    name: windows-msvc ${{ matrix.arch }} / ${{ matrix.version }}
-    runs-on: windows-2025
-    strategy:
-      fail-fast: false
-      matrix:
-        version: ["4.4.8", "5.1.10", "6.1.6", "7.1.5", "8.0.3", "8.1.2", "9.0"]
-        arch: [x86_64, arm64]
-    env:
-      SEL_PLATFORMS: ${{ inputs.platforms }}
-      SEL_VERSIONS: ${{ inputs.versions }}
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - id: sel
-        shell: bash
-        run: bash script/common/ci-select.sh windows-msvc "${{ matrix.version }}"
-      - name: deps
-        if: steps.sel.outputs.skip != 'true'
-        shell: pwsh
-        run: |
-          choco install -y --no-progress nasm pkgconfiglite
-          C:\msys64\usr\bin\bash -lc "pacman -Sy --needed --noconfirm make"
-      - name: build
-        if: steps.sel.outputs.skip != 'true'
-        shell: bash
-        run: |
-          bash script/windows-msvc/build.sh "${{ matrix.version }}" "${{ matrix.arch }}" || {
-            code=$?
-            echo "===== ffbuild/config.log (尾部 200 行) ====="
-            tail -n 200 ".deps/ffmpeg-${{ matrix.version }}/ffbuild/config.log" || true
-            exit "$code"
-          }
-      - name: pack
-        if: steps.sel.outputs.skip != 'true'
-        shell: bash
-        run: |
-          cd build
-          d="ffmpeg-${{ matrix.version }}-windows-msvc-${{ matrix.arch }}"
-          tar -cJf "$d.tar.xz" "$d"
-      - uses: actions/upload-artifact@v4
-        if: steps.sel.outputs.skip != 'true'
-        with:
-          name: ffmpeg-${{ matrix.version }}-windows-msvc-${{ matrix.arch }}
-          path: build/ffmpeg-*.tar.xz
-          if-no-files-found: error
-
   # -------------------- Linux 原生 (x86_64 / arm64) --------------------
   linux:
     name: linux ${{ matrix.arch }} / ${{ matrix.version }}
@@ -275,7 +226,7 @@ jobs:
   # -------------------- 功能测试 (仅 tag; 9.0 版本原生运行) --------------------
   test:
     name: test ${{ matrix.name }}
-    needs: [macos, windows, windows-msvc, linux, android]
+    needs: [macos, windows, linux, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ${{ matrix.runs-on }}
     strategy:
@@ -284,8 +235,7 @@ jobs:
         include:
           - { name: linux-x86_64, runs-on: ubuntu-latest, artifact: ffmpeg-9.0-linux-x86_64 }
           - { name: macos-arm64, runs-on: macos-15, artifact: ffmpeg-9.0-macos-arm64 }
-          - { name: windows-x86_64-mingw, runs-on: windows-2025, artifact: ffmpeg-9.0-windows-x86_64 }
-          - { name: windows-x86_64-msvc, runs-on: windows-2025, artifact: ffmpeg-9.0-windows-msvc-x86_64 }
+          - { name: windows-x86_64, runs-on: windows-2025, artifact: ffmpeg-9.0-windows-x86_64 }
     timeout-minutes: 30
     steps:
       - uses: actions/download-artifact@v4
