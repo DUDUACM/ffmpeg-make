@@ -182,15 +182,12 @@ build_one() {
     --extra-cflags="-MT $TARGET -Wno-unused-command-line-argument -Wno-deprecated-declarations" \
     --extra-ldflags="-MT $TARGET"
 
-  # FFmpeg 为 msvc 生成的依赖跟踪块 (define XDEP ... endef) 内嵌 awk 脚本,
-  # 其反斜杠在 MSYS 链路下会被吃掉一层 (gsub(/\/ 语法错误)。一次性 CI 构建
-  # 不需要增量依赖, 把这些块替换成"生成空 .d"的无害实现
-  awk '
-    /^define [A-Z]+DEP$/ { print; print "\t: > $(@:.o=.d)"; in_dep=1; next }
-    in_dep && /^endef$/  { print; in_dep=0; next }
-    in_dep               { next }
-                         { print }
-  ' ffbuild/config.mak > ffbuild/config.mak.new && mv ffbuild/config.mak.new ffbuild/config.mak
+  # FFmpeg 为 msvc 写入 config.mak 的 CCDEP/CXXDEP/ASDEP/HOSTCCDEP 等 [A-Z_]*DEP=
+  # 单行赋值内嵌 awk 依赖脚本, 其反斜杠在 MSYS 链路下被吃掉一层 (gsub(/\/ 语法
+  # 错误)。一次性 CI 构建不需要增量依赖, 把这些赋值替换成"生成空 .d"的无害实现
+  # (FFmpeg 无原生构建系统, 官方 Windows 路径就是 MSYS2, 只能绕不能换)
+  # shellcheck disable=SC2016  # $(@:.o=.d) 是 make 展开语法, 不需要 shell 展开
+  sed -i 's|^\([A-Z_]*DEP\)=.*|\1=: > $(@:.o=.d)|' ffbuild/config.mak
 
   echo "==> [$VER/windows-msvc-$ARCH] make -j${JOBS}  ($MAKE)"
   "$MAKE" clean
