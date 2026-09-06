@@ -55,6 +55,10 @@ for c in h264 hevc; do
   fi
 done
 
+# 关闭自动检测 (runner 装了 XQuartz 等会被误启用, 且 X11 依赖不该进分发产物),
+# 显式启用需要的系统库 (SDK 自带头文件)
+EXTRA_LIB_CFG="--enable-zlib --enable-bzlib --enable-iconv"
+
 build_one() {
   local ARCH="$1" CPU CPU_ARG OPTCFLAGS X86ASM_CFG
   local PREFIX="$OUT_BASE/ffmpeg-${VER}-${PLATFORM}-${ARCH}"
@@ -80,6 +84,8 @@ build_one() {
     --disable-debug \
     --enable-pic \
     --enable-stripping \
+    --disable-autodetect \
+    $EXTRA_LIB_CFG \
     $POSTPROC_CFG \
     --enable-small \
     --enable-static \
